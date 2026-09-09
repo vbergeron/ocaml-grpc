@@ -17,15 +17,6 @@ let grpc_send_streaming_client body encoder_stream =
     encoder_stream;
   H2.Body.Writer.close body
 
-(* Write [payload] and block until it has actually drained to the
-   transport, so the caller can't race ahead to the next message (or to
-   trailers/close) before this one has left the process. *)
-let write_and_flush body payload =
-  H2.Body.Writer.write_string body payload;
-  let flushed, notify_flushed = Eio.Promise.create () in
-  H2.Body.Writer.flush body (Eio.Promise.resolve notify_flushed);
-  Eio.Promise.await flushed
-
 let grpc_send_streaming request encoder_stream status_promise =
   let body =
     H2.Reqd.respond_with_streaming ~flush_headers_immediately:true request
@@ -35,7 +26,12 @@ let grpc_send_streaming request encoder_stream status_promise =
          `OK)
   in
   Seq.iter
-    (fun input -> write_and_flush body (Grpc.Message.make input))
+    (fun input ->
+      let payload = Grpc.Message.make input in
+      H2.Body.Writer.write_string body payload;
+      let flushed, notify_flushed = Eio.Promise.create () in
+      H2.Body.Writer.flush body (Eio.Promise.resolve notify_flushed);
+      Eio.Promise.await flushed)
     encoder_stream;
   let status = Eio.Promise.await status_promise in
   H2.Reqd.schedule_trailers request
