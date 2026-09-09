@@ -31,7 +31,7 @@ let grpc_send_streaming request encoder_stream status_promise =
       H2.Body.Writer.write_string body payload;
       let flushed, notify_flushed = Eio.Promise.create () in
       H2.Body.Writer.flush body (Eio.Promise.resolve notify_flushed);
-      Eio.Promise.await flushed)
+      match Eio.Promise.await flushed with `Written | `Closed -> ())
     encoder_stream;
   let status = Eio.Promise.await status_promise in
   H2.Reqd.schedule_trailers request
